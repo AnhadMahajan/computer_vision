@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced CV Live Drawing</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+            height: 100vh;
+        }
+        
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+        }
+        
+        .video-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 320px;
+            height: 240px;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+        
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+        
+        #drawingCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: none;
+            background: rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(20px);
+            padding: 20px;
+            border-radius: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            z-index: 10;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 15px;
+            background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+        }
+        
+        .btn.active {
+            background: linear-gradient(45deg, #4ecdc4, #44a08d);
+        }
+        
+        .color-picker {
+            width: 50px;
+            height: 50px;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+        
+        .color-picker:hover {
+            transform: scale(1.1);
+        }
+        
+        .status {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 15px;
+            font-weight: bold;
+            z-index: 10;
+        }
+        
+        .gesture-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 4rem;
+            color: rgba(255,255,255,0.8);
+            text-shadow: 0 0 20px rgba(255,255,255,0.5);
+            pointer-events: none;
+            z-index: 5;
+            transition: all 0.3s ease;
+        }
+        
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: white;
+            border-radius: 50%;
+            pointer-events: none;
+            animation: particle 2s ease-out forwards;
+        }
+        
+        @keyframes particle {
+            0% {
+                opacity: 1;
+                transform: scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: scale(0) translate(100px, 100px);
+            }
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 2rem;
+            text-align: center;
+            z-index: 20;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255,255,255,0.3);
+            border-top: 5px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div>Initializing Computer Vision...</div>
+        </div>
+        
+        <div class="status" id="status">Initializing...</div>
+        
+        <div class="video-container">
+            <video id="video" autoplay muted></video>
+        </div>
+        
+        <canvas id="drawingCanvas"></canvas>
+        
+        <div class="gesture-indicator" id="gestureIndicator">✋</div>
+        
+        <div class="controls">
+            <button class="btn active" id="drawBtn">Draw</button>
+            <button class="btn" id="eraseBtn">Erase</button>
+            <button class="btn" id="particleBtn">Particles</button>
+            <button class="btn" id="clearBtn">Clear</button>
+            <input type="color" class="color-picker" id="colorPicker" value="#ff6b6b">
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.2.0/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1620248257/drawing_utils.js"></script>
+
+    <script>
+        class AdvancedLiveDrawing {
+            constructor() {
+                this.video = document.getElementById('video');
+                this.canvas = document.getElementById('drawingCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.status = document.getElementById('status');
+                this.gestureIndicator = document.getElementById('gestureIndicator');
+                this.loading = document.getElementById('loading');
+                
+                this.isDrawing = false;
+                this.lastPosition = null;
+                this.currentMode = 'draw';
+                this.currentColor = '#ff6b6b';
+                this.brushSize = 5;
+                this.particles = [];
+                
+                this.gestures = {
+                    draw: '✏️',
+                    erase: '🧽',
+                    particle: '✨',
+                    clear: '🗑️'
+                };
+                
+                this.setupCanvas();
+                this.setupControls();
+                this.initializeHandTracking();
+            }
+            
+            setupCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                this.ctx.lineCap = 'round';
+                this.ctx.lineJoin = 'round';
+            }
+            
+            setupControls() {
+                document.getElementById('drawBtn').onclick = () => this.setMode('draw');
+                document.getElementById('eraseBtn').onclick = () => this.setMode('erase');
+                document.getElementById('particleBtn').onclick = () => this.setMode('particle');
+                document.getElementById('clearBtn').onclick = () => this.clearCanvas();
+                document.getElementById('colorPicker').onchange = (e) => {
+                    this.currentColor = e.target.value;
+                };
+            }
+            
+            setMode(mode) {
+                this.currentMode = mode;
+                document.querySelectorAll('.btn').forEach(btn => btn.classList.remove('active'));
+                document.getElementById(mode + 'Btn').classList.add('active');
+                this.gestureIndicator.textContent = this.gestures[mode];
+            }
+            
+            async initializeHandTracking() {
+                try {
+                    // Initialize MediaPipe Hands
+                    this.hands = new Hands({
+                        locateFile: (file) => {
+                            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`;
+                        }
+                    });
+                    
+                    this.hands.setOptions({
+                        maxNumHands: 2,
+                        modelComplexity: 1,
+                        minDetectionConfidence: 0.5,
+                        minTrackingConfidence: 0.5
+                    });
+                    
+                    this.hands.onResults(this.onResults.bind(this));
+                    
+                    // Setup camera
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { width: 1280, height: 720 } 
+                    });
+                    this.video.srcObject = stream;
+                    
+                    await new Promise(resolve => {
+                        this.video.onloadedmetadata = resolve;
+                    });
+                    
+                    this.camera = new Camera(this.video, {
+                        onFrame: async () => {
+                            await this.hands.send({ image: this.video });
+                        },
+                        width: 1280,
+                        height: 720
+                    });
+                    
+                    this.camera.start();
+                    this.loading.style.display = 'none';
+                    this.status.textContent = 'Ready - Show your hand to start drawing!';
+                    
+                } catch (error) {
+                    console.error('Error initializing hand tracking:', error);
+                    this.status.textContent = 'Error: Camera access required';
+                    this.loading.style.display = 'none';
+                }
+            }
+            
+            onResults(results) {
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const landmarks = results.multiHandLandmarks[0];
+                    const indexTip = landmarks[8]; // Index finger tip
+                    const indexPip = landmarks[6]; // Index finger PIP joint
+                    const middleTip = landmarks[12]; // Middle finger tip
+                    const thumbTip = landmarks[4]; // Thumb tip
+                    
+                    // Convert normalized coordinates to canvas coordinates
+                    const x = (1 - indexTip.x) * this.canvas.width; // Mirror horizontally
+                    const y = indexTip.y * this.canvas.height;
+                    
+                    // Gesture recognition
+                    const isPointing = this.isPointing(landmarks);
+                    const isPinching = this.isPinching(indexTip, thumbTip);
+                    const isFist = this.isFist(landmarks);
+                    
+                    if (isPointing && !isPinching) {
+                        this.handleDrawing(x, y);
+                        this.status.textContent = `Drawing at (${Math.round(x)}, ${Math.round(y)})`;
+                    } else if (isPinching) {
+                        this.handleSpecialAction(x, y);
+                        this.status.textContent = 'Special action activated';
+                    } else if (isFist) {
+                        this.isDrawing = false;
+                        this.lastPosition = null;
+                        this.status.textContent = 'Fist detected - drawing paused';
+                    } else {
+                        this.isDrawing = false;
+                        this.lastPosition = null;
+                        this.status.textContent = 'Hand detected - point to draw';
+                    }
+                    
+                    this.updateParticles();
+                    
+                } else {
+                    this.isDrawing = false;
+                    this.lastPosition = null;
+                    this.status.textContent = 'No hand detected';
+                }
+            }
+            
+            isPointing(landmarks) {
+                const indexTip = landmarks[8];
+                const indexPip = landmarks[6];
+                const middleTip = landmarks[12];
+                const middlePip = landmarks[10];
+                
+                // Index finger should be extended, middle finger should be folded
+                const indexExtended = indexTip.y < indexPip.y;
+                const middleFolded = middleTip.y > middlePip.y;
+                
+                return indexExtended && middleFolded;
+            }
+            
+            isPinching(indexTip, thumbTip) {
+                const distance = Math.sqrt(
+                    Math.pow(indexTip.x - thumbTip.x, 2) + 
+                    Math.pow(indexTip.y - thumbTip.y, 2)
+                );
+                return distance < 0.05; // Threshold for pinch gesture
+            }
+            
+            isFist(landmarks) {
+                const tips = [8, 12, 16, 20]; // Finger tips
+                const pips = [6, 10, 14, 18]; // PIP joints
+                
+                let foldedFingers = 0;
+                for (let i = 0; i < tips.length; i++) {
+                    if (landmarks[tips[i]].y > landmarks[pips[i]].y) {
+                        foldedFingers++;
+                    }
+                }
+                
+                return foldedFingers >= 3; // At least 3 fingers folded
+            }
+            
+            handleDrawing(x, y) {
+                if (this.currentMode === 'draw') {
+                    this.draw(x, y);
+                } else if (this.currentMode === 'erase') {
+                    this.erase(x, y);
+                } else if (this.currentMode === 'particle') {
+                    this.addParticle(x, y);
+                }
+            }
+            
+            handleSpecialAction(x, y) {
+                if (this.currentMode === 'draw') {
+                    this.addGlow(x, y);
+                } else if (this.currentMode === 'particle') {
+                    this.addExplosion(x, y);
+                }
+            }
+            
+            draw(x, y) {
+                this.ctx.globalCompositeOperation = 'source-over';
+                this.ctx.strokeStyle = this.currentColor;
+                this.ctx.lineWidth = this.brushSize;
+                
+                if (this.isDrawing && this.lastPosition) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(this.lastPosition.x, this.lastPosition.y);
+                    this.ctx.lineTo(x, y);
+                    this.ctx.stroke();
+                } else {
+                    this.ctx.beginPath();
+                    this.ctx.arc(x, y, this.brushSize / 2, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+                
+                this.isDrawing = true;
+                this.lastPosition = { x, y };
+            }
+            
+            erase(x, y) {
+                this.ctx.globalCompositeOperation = 'destination-out';
+                this.ctx.beginPath();
+                this.ctx.arc(x, y, 20, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+            
+            addParticle(x, y) {
+                for (let i = 0; i < 5; i++) {
+                    const particle = document.createElement('div');
+                    particle.className = 'particle';
+                    particle.style.left = x + 'px';
+                    particle.style.top = y + 'px';
+                    particle.style.background = this.currentColor;
+                    document.body.appendChild(particle);
+                    
+                    setTimeout(() => {
+                        if (particle.parentNode) {
+                            particle.parentNode.removeChild(particle);
+                        }
+                    }, 2000);
+                }
+            }
+            
+            addGlow(x, y) {
+                const gradient = this.ctx.createRadialGradient(x, y, 0, x, y, 50);
+                gradient.addColorStop(0, this.currentColor + '80');
+                gradient.addColorStop(1, this.currentColor + '00');
+                
+                this.ctx.fillStyle = gradient;
+                this.ctx.beginPath();
+                this.ctx.arc(x, y, 50, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+            
+            addExplosion(x, y) {
+                for (let i = 0; i < 20; i++) {
+                    const particle = document.createElement('div');
+                    particle.className = 'particle';
+                    particle.style.left = x + 'px';
+                    particle.style.top = y + 'px';
+                    particle.style.background = `hsl(${Math.random() * 360}, 100%, 50%)`;
+                    particle.style.animationDelay = Math.random() * 0.5 + 's';
+                    document.body.appendChild(particle);
+                    
+                    setTimeout(() => {
+                        if (particle.parentNode) {
+                            particle.parentNode.removeChild(particle);
+                        }
+                    }, 2500);
+                }
+            }
+            
+            updateParticles() {
+                // This method can be used for continuous particle effects
+                if (this.currentMode === 'particle' && this.isDrawing) {
+                    // Add subtle continuous particles while drawing
+                }
+            }
+            
+            clearCanvas() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                // Remove all particles
+                document.querySelectorAll('.particle').forEach(p => {
+                    if (p.parentNode) p.parentNode.removeChild(p);
+                });
+            }
+        }
+        
+        // Initialize the application
+        window.addEventListener('load', () => {
+            new AdvancedLiveDrawing();
+        });
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const canvas = document.getElementById('drawingCanvas');
+            const ctx = canvas.getContext('2d');
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            ctx.putImageData(imageData, 0, 0);
+        });
+    </script>
+</body>
+</html>
