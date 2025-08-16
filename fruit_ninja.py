@@ -11,7 +11,6 @@ from collections import deque
 
 class HandGestureNetworkController:
     def __init__(self):
-        # Initialize MediaPipe hand detection
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
